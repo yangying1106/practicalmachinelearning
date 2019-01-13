@@ -1,0 +1,219 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Ying Yang"
+date: "13 January 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview and Workflow 
+
+The purpose of this project is to predict how well the users did their dumbell exercise based on the data collected from accelerometers. 
+
+I organised my project in the following workflow: 
+
+I first split the training data into validation and training datasets. The validation data set serves as test data for me, as we don't know the actual outcome, i.e. the 'classe' variable, of the test data provided to us. 
+
+Then I used some exploratory analysis techniques to understand the data and also check the quality the data. Based on these exploratory analysis, I pre-processed the training data to make sure it is set for modelling. I also pre-processed the validation and test data in the same way. 
+
+For prediction modelling, since the outcome variable "classe" is categorical, I selected a few classification models, including Decision Tree with K-fold Cross Validation, Random Forest, and Gradient Boosting. Based on reported accuracies for each model, I finally selected Random Forest as my prediction model, which has a accuracy of 0.9998, 0.0002 out-of-sample-error rate. 
+
+```{r}
+# Load the libraries
+library(caret)
+library(Amelia)
+library(dplyr)
+library(corrplot)
+
+```
+
+
+## 1. Read the training and testing datasets
+
+```{r}
+
+training <- read.csv("C:/Users/Yangying/Documents/Practical Machine Learning/pml-training.csv",na.strings=c(""," ", "NA"))
+
+testing <- read.csv("C:/Users/Yangying/Documents/Practical Machine Learning/pml-testing.csv",na.strings=c(""," ", "NA"))
+
+```
+
+## 2. split out a small subset of training data for validation purpose 
+
+```{r}
+
+## set the seed to ensure reproducibility 
+
+set.seed(12125)
+
+inValidation<- createDataPartition(y=training$classe,
+                                   p=0.25, list=FALSE)
+
+valid<- training[inValidation, ]
+
+training<- training[-inValidation,]
+
+```
+
+## 3.Exploratory analysis and Pre prossing
+
+### 3.1 check the sieze of the training, test and valid data
+
+```{r}
+
+dim(training)
+
+dim(testing)
+
+dim(valid)
+
+```
+
+### 3.2 Map out the missing values (or the NA values) 
+
+```{r, echo=FALSE}
+
+missmap(training)
+
+## By mapping out the NA values, 61% of the variables are nearly all NA values. In this case they should be remvoed.
+
+```
+
+### 3.3 Remove variables with nearly all NA values
+
+```{r}
+ 
+navariables<- colnames(training[colSums(is.na(training)) > 0])
+
+training<- select(training, -navariables)
+
+# the first column is just row number, hence should be removed too
+
+training<- training[, -1]
+
+```
+
+### 3.4 check if there are any variables with nearly no variance
+
+```{r}
+
+nearZeroVar(training, saveMetrics = TRUE)
+
+## new_window is a near zero variable, probably should be removed 
+
+nsv<- nearZeroVar(training)
+
+training<- training[, -nsv]
+
+```
+
+### 3.5 check if there are any correlated predictors
+
+In this step I have excluded the outcome variable "classe", and first 5 predictors, "user_name", "raw_timestamp_part_1","raw_timestamp_part_2", "cvtd_timestamp" and "num_window",because they are categorical variables and can't be used for 'cor' function. 
+
+
+```{r}
+
+M<- cor(training[, -c(1:5, 58)])
+
+diag(M)<- 0 
+
+which(abs(M)>0.9, arr.ind=T)
+
+
+```
+
+```{r pressure, echo=FALSE}
+## visualise the correlation
+
+corrplot(M, order = "FPC", method = "color", type = "upper", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+
+# It seems there are some correlated predictors and we could apply Principle Component Analysis (PCA) methods to reduce the number of predictors. However, we only have 58 predictors, hence it might not so necessary to use the PCA technique. 
+
+```
+
+
+### 3.6 Pre process the testing and validation data in the same way as training data  
+
+```{r}
+testing<- select(testing, -navariables)
+testing<- testing[,-1]
+testing<- testing[, - nsv]
+
+valid<- select(valid, -navariables)
+valid<- valid[,-1]
+valid<- valid[, - nsv]
+
+```
+
+## 4.  Build prediction models
+
+### 4.1 Predicting with Desicion Tree with K-fold Cross Validation
+
+```{r}
+
+set.seed(13489)
+
+traincontrol<- trainControl(method="cv", number=10, repeats=5)
+
+mod_tree<- train(classe~., data=training, 
+                  method="rpart", 
+                  trControl=traincontrol)
+
+pred_tree<- predict(mod_tree, newdata = valid)
+
+## Report Confusion Matrix and Accuracy 
+
+confusionMatrix(pred_tree, valid$classe)
+
+## Accurary is 0.624, out-of-sample error is 0.376, which is quite high. 
+
+```
+
+### 4.2 Predicting with Random Forest
+
+```{r}
+set.seed(12141)
+
+mod_rf<- train(classe~., data=training, method="rf")
+
+pred_rf<- predict(mod_rf, newdata = valid)
+
+## Report Confusion Matrix and Accuracy 
+
+confusionMatrix(pred_rf, valid$classe)
+
+##Accurary is 0.9998, almost 100% correct, out-of-sample error is 0.0002. 
+```
+
+### 4.3 Predicting with Gradient Boosting 
+
+```{r}
+
+set.seed(13454)
+
+mod_gbm<- train(classe~., data=training, method="gbm", verbose = FALSE)
+
+pred_gbm<- predict(mod_gbm, newdata = valid)
+
+## Report Confusion Matrix and Accuracy 
+
+confusionMatrix(pred_gbm, valid$classe)
+
+##Accurary is 0.9974, out-of-sample error is 0.0026, which is not bad, but not so good as Random Forest. 
+
+```
+
+
+## 5. Apply the best model to predict the testing data
+
+```{r}
+
+predict(mod_rf, newdata=testing)
+
+```
+
